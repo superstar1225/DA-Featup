@@ -15,6 +15,7 @@ from estimator.tester import Tester
 from estimator.models.featup import Featup
 from mmengine import print_log
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a segmentor')
     parser.add_argument('config', help='train config file path')
@@ -30,6 +31,7 @@ def parse_args():
     parser.add_argument(
         '--ckp-path',
         type=str,
+        default='Zhyever/patchfusion_depth_anything_vitl14',
         help='ckp_path')
     parser.add_argument(
         '--amp',
@@ -46,6 +48,12 @@ def parse_args():
         type=str,
         default='m1',
         help='m1, m2, or rx')
+    parser.add_argument(
+        '--model-path',
+        type=str,
+        default=False,
+        help='model_path'
+    )
     parser.add_argument(
         '--process-num',
         type=int, default=2,
@@ -93,11 +101,28 @@ def parse_args():
 def main():
     args = parse_args()
 
+    # print(args.config)
+    # print(args.work_dir)
+    # print(args.test_type)
+    # print(args.ckp_path)
+    # print(args.amp)
+    # print(args.save)
+    # print(args.cai_mode)
+    # print(args.process_num)
+    # print(args.tag)
+    # print(args.gray_scale)
+    print(args.image_raw_shape)
+    print(args.patch_split_num)
+    # print(args.cfg_options)
+    # print(args.launcher)
+    # print(args.local_rank)
+
     image_raw_shape=[int(num) for num in args.image_raw_shape]
     patch_split_num=[int(num) for num in args.patch_split_num]
         
     # load config
     cfg = Config.fromfile(args.config)
+    print(cfg)
     
     cfg.launcher = args.launcher
     if args.cfg_options is not None:
@@ -117,10 +142,14 @@ def main():
         
     mkdir_or_exist(cfg.work_dir)
     cfg.ckp_path = args.ckp_path
+
+    print(image_raw_shape,patch_split_num)
+    print(cfg)
     
     # fix seed
     seed = cfg.get('seed', 5621)
     fix_random_seed(seed)
+    print(seed, fix_random_seed(seed))
     
     # start dist training
     if cfg.launcher == 'none':
@@ -134,7 +163,7 @@ def main():
         distributed = True
         env_cfg = cfg.get('env_cfg', dict(dist_cfg=dict(backend='nccl')))
         rank, world_size, timestamp = setup_env(env_cfg, distributed, cfg.launcher)
-    
+
     # build dataloader
     if args.test_type == 'consistency':
         dataloader_config = cfg.val_consistency_dataloader
@@ -164,7 +193,12 @@ def main():
     dataset_name = dataset.dataset_name
     # log_filename = 'eval_{}_{}_{}_{}.log'.format(timestamp, exp_cfg_filename, ckp_name, dataset_name)
     log_filename = 'eval_{}_{}_{}_{}_{}.log'.format(exp_cfg_filename, args.tag, ckp_name, dataset_name, timestamp)
-    
+    print(config_path)
+    print(exp_cfg_filename)
+    print(ckp_name)
+    print(dataset_name)
+    print(log_filename)
+
     # prepare basic text logger
     log_file = osp.join(args.work_dir, log_filename)
     log_cfg = dict(log_level='INFO', log_file=log_file)
@@ -191,14 +225,17 @@ def main():
     runner_info.save = args.save
     runner_info.log_filename = log_filename
     runner_info.gray_scale = args.gray_scale
-    
+    print(runner_info)
+
     if runner_info.save:
+        print(1)
         mkdir_or_exist(args.work_dir)
         runner_info.work_dir = args.work_dir
     # log_env(cfg, env_cfg, runner_info, logger)
     
     # build model
     if '.pth' in cfg.ckp_path:
+        print(111)
         model = build_model(cfg.model)
         print_log('Checkpoint Path: {}. Loading from a local file'.format(cfg.ckp_path), logger='current')
         if hasattr(model, 'load_dict'):
@@ -206,6 +243,7 @@ def main():
         else:
             print_log(model.load_state_dict(torch.load(cfg.ckp_path)['model_state_dict'], strict=True), logger='current')
     else:
+        print(222)
         print_log('Checkpoint Path: {}. Loading from the huggingface repo'.format(cfg.ckp_path), logger='current')
         assert cfg.ckp_path in \
             ['Zhyever/patchfusion_depth_anything_vits14', 
@@ -215,40 +253,40 @@ def main():
         model = Featup.from_pretrained(cfg.ckp_path)
     model.eval()
     
-    if runner_info.distributed:
-        torch.cuda.set_device(runner_info.rank)
-        model.cuda(runner_info.rank)
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[runner_info.rank], output_device=runner_info.rank,
-                                                          find_unused_parameters=cfg.get('find_unused_parameters', False))
-        logger.info(model)
-    else:
-        model.cuda()
+    # if runner_info.distributed:
+    #     torch.cuda.set_device(runner_info.rank)
+    #     model.cuda(runner_info.rank)
+    #     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[runner_info.rank], output_device=runner_info.rank,
+    #                                                       find_unused_parameters=cfg.get('find_unused_parameters', False))
+    #     logger.info(model)
+    # else:
+    #     model.cuda()
         
-    if runner_info.distributed:
-        val_sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=False)
-    else:
-        val_sampler = None
+    # if runner_info.distributed:
+    #     val_sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=False)
+    # else:
+    #     val_sampler = None
     
-    val_dataloader = DataLoader(
-        dataset,
-        batch_size=1,
-        shuffle=False,
-        num_workers=dataloader_config.num_workers,
-        pin_memory=True,
-        persistent_workers=True,
-        sampler=val_sampler)
+    # val_dataloader = DataLoader(
+    #     dataset,
+    #     batch_size=1,
+    #     shuffle=False,
+    #     num_workers=dataloader_config.num_workers,
+    #     pin_memory=True,
+    #     persistent_workers=True,
+    #     sampler=val_sampler)
 
-    # build tester
-    tester = Tester(
-        config=cfg,
-        runner_info=runner_info,
-        dataloader=val_dataloader,
-        model=model)
+    # # build tester
+    # tester = Tester(
+    #     config=cfg,
+    #     runner_info=runner_info,
+    #     dataloader=val_dataloader,
+    #     model=model)
     
-    if args.test_type == 'consistency':
-        tester.run_consistency()
-    else:
-        tester.run(args.cai_mode, process_num=args.process_num, image_raw_shape=image_raw_shape, patch_split_num=patch_split_num)
+    # if args.test_type == 'consistency':
+    #     tester.run_consistency()
+    # else:
+    #     tester.run(args.cai_mode, process_num=args.process_num, image_raw_shape=image_raw_shape, patch_split_num=patch_split_num)
 
 if __name__ == '__main__':
     main()
